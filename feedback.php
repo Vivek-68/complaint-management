@@ -15,14 +15,14 @@ if (isset($_GET['cid']) && isset($_GET['token']) && isset($_GET['response'])) {
     ");
     
     if ($result->num_rows === 1) {
+        $complaint = $result->fetch_assoc();
+        
         if ($response === 'no') {
             // Escalate complaint
-            $complaint_data = $result->fetch_assoc();
-            $current_level = $complaint_data['escalation_level'];
-            $new_level = $current_level + 1;
-            $type_id = $complaint_data['type_id'];
+            $new_level = $complaint['escalation_level'] + 1;
+            $type_id = $complaint['type_id'];
             
-            // Get next level respondent
+            // Find higher-level respondent
             $respondent = $conn->query("
                 SELECT u.id 
                 FROM users u
@@ -33,31 +33,21 @@ if (isset($_GET['cid']) && isset($_GET['token']) && isset($_GET['response'])) {
                 LIMIT 1
             ");
             
-            if ($respondent->num_rows > 0) {
-                $respondent_id = $respondent->fetch_assoc()['id'];
-                $conn->query("
-                    UPDATE complaints 
-                    SET status = 'Open',
-                        escalation_level = $new_level,
-                        current_respondent_id = $respondent_id,
-                        feedback_token = NULL,
-                        token_expiry = NULL
-                    WHERE id = $complaint_id
-                ");
-            } else {
-                // No higher level respondent found - assign to admin
-                $conn->query("
-                    UPDATE complaints 
-                    SET status = 'Open',
-                        escalation_level = $new_level,
-                        current_respondent_id = NULL,
-                        feedback_token = NULL,
-                        token_expiry = NULL
-                    WHERE id = $complaint_id
-                ");
-            }
+            $respondent_id = $respondent->num_rows > 0 
+                ? $respondent->fetch_assoc()['id'] 
+                : NULL;
+
+            $conn->query("
+                UPDATE complaints 
+                SET status = 'Open',
+                    escalation_level = $new_level,
+                    current_respondent_id = " . ($respondent_id ?? 'NULL') . ",
+                    feedback_token = NULL,
+                    token_expiry = NULL
+                WHERE id = $complaint_id
+            ");
         } else {
-            // Mark as closed
+            // Close complaint
             $conn->query("
                 UPDATE complaints 
                 SET status = 'Closed',

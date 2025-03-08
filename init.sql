@@ -80,5 +80,10 @@ INSERT INTO types (type_name, subtype) VALUES
 ('Hardware', 'Device Malfunctions');
 
 -- Create admin user (password: admin123)
-INSERT INTO users (username, email, password, role) 
-VALUES ('admin', 'admin@complaintsystem.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin');
+-- INSERT INTO users (username, email, password, role) 
+-- VALUES ('admin', 'admin@complaintsystem.com', '$2y$10$xAzn0ql7RrDLWBV8mjbv/uhGdE0xANyPT7SQ5CoAX90Wk1jBjdzky', 'admin');
+
+ALTER TABLE complaints
+ADD COLUMN escalation_level INT DEFAULT 1,
+ADD COLUMN feedback_token VARCHAR(64),
+ADD COLUMN token_expiry DATETIME;

@@ -128,3 +128,44 @@ button {
     width: 100px;
     padding: 0.3rem;
 }
+/* Status badges */
+.status-open { color: #e74c3c; }
+.status-in-progress { color: #f1c40f; }
+.status-resolved { color: #2ecc71; }
+.status-escalated { color: #9b59b6; }
+.status-closed { color: #95a5a6; }
+
+/* Status form */
+.status-form {
+    margin-top: 1rem;
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.status-form select {
+    padding: 0.3rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.btn-small {
+    padding: 0.3rem 0.8rem;
+    font-size: 0.9rem;
+}
+
+/* Complaint meta */
+.complaint-meta {
+    margin-top: 0.5rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.meta-item {
+    padding: 0.3rem;
+    background: #f5f5f5;
+    border-radius: 4px;
+}

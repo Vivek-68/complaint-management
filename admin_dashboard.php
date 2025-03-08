@@ -1,6 +1,6 @@
 <?php
 include 'config.php';
-session_start();
+// session_start();
 
 // Authentication check
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
