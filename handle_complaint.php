@@ -4,76 +4,98 @@ require 'vendor/autoload.php';
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
-// Remove session_start() here since it's already in config.php
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Get complaint details
+    $type_id = $conn->real_escape_string($_POST['type_id']);
+    $subject = $conn->real_escape_string($_POST['subject']);
+    $description = $conn->real_escape_string($_POST['description']);
+    $complainant_id = $_SESSION['user_id'];
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['status'])) {
-    $complaint_id = $_POST['complaint_id'];
-    $new_status = $_POST['status'];
-    
-    $stmt = $conn->prepare("UPDATE complaints SET status = ? WHERE id = ?");
-    $stmt->bind_param("si", $new_status, $complaint_id);
-    
-    if ($stmt->execute()) {
-        if ($new_status == 'Resolved') {
-            // Generate unique token
-            $token = bin2hex(random_bytes(32));
-            $expiry = date('Y-m-d H:i:s', strtotime('+24 hours'));
-            
-            // Store token
-            $conn->query("UPDATE complaints 
-                         SET feedback_token = '$token', 
-                             token_expiry = '$expiry' 
-                         WHERE id = $complaint_id");
-            
-            // Get complaint details
-            $result = $conn->query("
-                SELECT u.email, c.subject 
-                FROM complaints c
-                JOIN users u ON c.complainant_id = u.id
-                WHERE c.id = $complaint_id
-            ");
-            $data = $result->fetch_assoc();
-            
-            // Configure PHPMailer
-            $mail = new PHPMailer(true);
-            try {
-                // SMTP Configuration (Update these with your details)
-                $mail->isSMTP();
-                $mail->Host       = 'smtp.gmail.com';
-                $mail->SMTPAuth   = true;
-                $mail->Username   = 'akashda21_ug@cse.nits.ac.in'; // Your email
-                $mail->Password   = 'ad17062001'; // App password
-                $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
-                $mail->Port       = 465;
-                
-                // Recipients
-                $mail->setFrom('no-reply@complaintsystem.com', 'Complaint System');
-                $mail->addAddress($data['email']);
-                
-                // Content
-                $mail->isHTML(true);
-                $mail->Subject = 'Complaint Resolution Feedback';
-                $feedback_link = "http://localhost/complaint_system/feedback.php?cid=$complaint_id&token=$token";
-                $mail->Body    = "
-                    <h3>Your complaint has been resolved!</h3>
-                    <p>Complaint: {$data['subject']}</p>
-                    <p>Are you satisfied with the resolution?</p>
-                    <p>
-                        <a href='$feedback_link&response=yes'>Yes</a> | 
-                        <a href='$feedback_link&response=no'>No</a>
-                    </p>
-                    <p>This link expires in 24 hours.</p>
-                ";
-                
-                if(!$mail->send()) {
-                    error_log("Mailer Error: " . $mail->ErrorInfo);
-                }
-            } catch (Exception $e) {
-                error_log("Mail Error: {$mail->ErrorInfo}");
-            }
-        }
-        header("Location: " . $_SERVER['HTTP_REFERER']);
-        exit();
+    // Step 1: Get complaint type
+    $type_result = $conn->query("
+        SELECT type_name 
+        FROM types 
+        WHERE id = $type_id
+    ");
+    if ($type_result->num_rows === 0) {
+        die("Invalid complaint type");
     }
+    $type_data = $type_result->fetch_assoc();
+    $complaint_type = $type_data['type_name'];
+
+    // Step 2: Find appropriate respondent
+    $respondent_query = $conn->query("
+        SELECT id 
+        FROM users 
+        WHERE role = 'respondent' 
+        AND rsp_type = '$complaint_type'
+        ORDER BY rsp_level ASC 
+        LIMIT 1
+    ");
+
+    $respondent_id = null;
+    if ($respondent_query->num_rows > 0) {
+        $respondent = $respondent_query->fetch_assoc();
+        $respondent_id = $respondent['id'];
+    }
+
+    // Step 3: Insert complaint
+    $insert_stmt = $conn->prepare("
+        INSERT INTO complaints 
+        (complainant_id, type_id, current_respondent_id, subject, description) 
+        VALUES (?, ?, ?, ?, ?)
+    ");
+    $insert_stmt->bind_param("iiiss", 
+        $complainant_id,
+        $type_id,
+        $respondent_id,
+        $subject,
+        $description
+    );
+
+    if ($insert_stmt->execute()) {
+        // Send confirmation to complainant
+        $complaint_id = $conn->insert_id;
+        $complainant_email = $conn->query("
+            SELECT email FROM users WHERE id = $complainant_id
+        ")->fetch_assoc()['email'];
+
+        $mail = new PHPMailer(true);
+        try {
+            // SMTP Configuration
+            $mail->isSMTP();
+            $mail->Host       = 'smtp.example.com';
+            $mail->SMTPAuth   = true;
+            $mail->Username   = 'your@email.com';
+            $mail->Password   = 'your_password';
+            $mail->SMTPSecure = 'ssl';
+            $mail->Port       = 465;
+
+            // Recipients
+            $mail->setFrom('no-reply@complaintsystem.com', 'Complaint System');
+            $mail->addAddress($complainant_email);
+
+            // Content
+            $mail->isHTML(true);
+            $mail->Subject = 'Complaint Submitted';
+            $mail->Body    = "
+                <h3>Your complaint has been received!</h3>
+                <p>Complaint ID: $complaint_id</p>
+                <p>Subject: $subject</p>
+                <p>We will review your complaint shortly.</p>
+            ";
+
+            $mail->send();
+        } catch (Exception $e) {
+            error_log("Mail Error: {$mail->ErrorInfo}");
+        }
+
+        $_SESSION['success'] = "Complaint submitted successfully!";
+    } else {
+        $_SESSION['error'] = "Error submitting complaint: " . $conn->error;
+    }
+
+    header("Location: complainant_dashboard.php");
+    exit();
 }
 ?>
