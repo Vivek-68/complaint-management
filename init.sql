@@ -80,10 +80,25 @@ INSERT INTO types (type_name, subtype) VALUES
 ('Hardware', 'Device Malfunctions');
 
 -- Create admin user (password: admin123)
--- INSERT INTO users (username, email, password, role) 
--- VALUES ('admin', 'admin@complaintsystem.com', '$2y$10$xAzn0ql7RrDLWBV8mjbv/uhGdE0xANyPT7SQ5CoAX90Wk1jBjdzky', 'admin');
+INSERT INTO users (username, email, password, role) 
+VALUES ('admin', 'admin@complaintsystem.com', '$2y$10$xAzn0ql7RrDLWBV8mjbv/uhGdE0xANyPT7SQ5CoAX90Wk1jBjdzky', 'admin');
 
 ALTER TABLE complaints
 ADD COLUMN escalation_level INT DEFAULT 1,
 ADD COLUMN feedback_token VARCHAR(64),
 ADD COLUMN token_expiry DATETIME;
+
+
+-- Replace archives table with audit_log
+CREATE TABLE audit_log (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT,
+    action_type VARCHAR(50) NOT NULL,`
+    description TEXT NOT NULL,
+    ip_address VARCHAR(45) NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+-- Add index for faster lookups
+CREATE INDEX idx_audit_action ON audit_log(action_type);

@@ -60,14 +60,28 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             );
 
             if ($stmt->execute()) {
+                $new_user_id = $conn->insert_id;
+                
+                // Log the registration activity
+                $log_description = "New $role registered: $username";
+                if ($role === 'respondent') {
+                    $log_description .= " (Type: $rsp_type, Level: $rsp_level)";
+                }
+                log_activity('USER_REGISTER', $log_description, $conn);
+                
                 header("Location: login.php");
                 exit();
             } else {
                 $error = "Registration failed: " . $conn->error;
+                log_activity('REGISTER_FAIL', "Failed registration attempt for $username", $conn);
             }
         } catch (mysqli_sql_exception $e) {
             $error = "Database error: " . $e->getMessage();
+            log_activity('DB_ERROR', "Registration error: " . $e->getMessage(), $conn);
         }
+    } else {
+        // Log validation errors
+        log_activity('VALIDATION_ERROR', "Registration validation failed: $error", $conn);
     }
 }
 ?>
@@ -85,6 +99,54 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         .required-asterisk {
             color: red;
             margin-left: 3px;
+        }
+        .error-message {
+            color: #dc3545;
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .auth-container {
+            max-width: 500px;
+            margin: 50px auto;
+            padding: 30px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: #fff;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .btn {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            width: 100%;
+        }
+        .btn:hover {
+            background-color: #0056b3;
+        }
+        .text-center {
+            text-align: center;
+            margin-top: 20px;
         }
     </style>
     <script>
@@ -121,9 +183,14 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             }
             return true;
         }
+
+        // Initialize fields on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            toggleRespondentFields();
+        });
     </script>
 </head>
-<body onload="toggleRespondentFields()">
+<body>
     <div class="auth-container">
         <h2 class="form-title">Create Account</h2>
         <?php if(!empty($error)): ?>

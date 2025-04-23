@@ -1,6 +1,5 @@
 <?php
 include 'config.php';
-// session_start();
 
 // Authentication check
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
@@ -45,6 +44,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_user'])) {
     $stmt->bind_param("sssi", $new_role, $rsp_type, $rsp_level, $user_id);
     
     if ($stmt->execute()) {
+        $log_desc = "User #$user_id updated: Role=$new_role, Type=$rsp_type, Level=$rsp_level";
+        log_activity('USER_UPDATE', $log_desc, $conn);
         $_SESSION['success'] = "User updated successfully";
     } else {
         $_SESSION['error'] = "Error updating user: " . $conn->error;
@@ -72,6 +73,15 @@ $users = $conn->query("SELECT * FROM users")->fetch_all(MYSQLI_ASSOC);
 
 // Fetch available complaint types
 $types = $conn->query("SELECT DISTINCT type_name FROM types")->fetch_all(MYSQLI_ASSOC);
+
+// Fetch audit logs
+$logs = $conn->query("
+    SELECT a.*, u.username 
+    FROM audit_log a
+    LEFT JOIN users u ON a.user_id = u.id
+    ORDER BY a.created_at DESC
+    LIMIT 100
+")->fetch_all(MYSQLI_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -79,6 +89,60 @@ $types = $conn->query("SELECT DISTINCT type_name FROM types")->fetch_all(MYSQLI_
     <meta charset="UTF-8">
     <title>Admin Dashboard</title>
     <link rel="stylesheet" href="style.css">
+    <style>
+        /* Audit Log Styles */
+        .audit-log {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            max-height: 500px;
+            overflow-y: auto;
+            padding: 15px;
+            background-color: #f9f9f9;
+        }
+
+        .log-entry {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #eee;
+            background-color: white;
+            border-radius: 4px;
+        }
+
+        .log-header {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+            color: #666;
+            flex-wrap: wrap;
+        }
+
+        .log-type {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .log-desc {
+            color: #34495e;
+            line-height: 1.4;
+        }
+
+        .audit-controls {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .status-filter {
+            margin: 20px 0;
+        }
+
+        .status-filter select {
+            padding: 5px;
+            border-radius: 4px;
+        }
+    </style>
 </head>
 <body>
     <div class="header">
@@ -100,44 +164,37 @@ $types = $conn->query("SELECT DISTINCT type_name FROM types")->fetch_all(MYSQLI_
             <?php unset($_SESSION['success']); ?>
         <?php endif; ?>
 
+        <!-- Audit Log Section -->
         <div class="dashboard-card">
-            <h2>All Complaints</h2>
-            <div class="complaint-list">
-                <?php foreach($complaints as $c): ?>
-                    <div class="complaint-item">
-                        <h3>
-                            <?= htmlspecialchars($c['subject']) ?>
-                            <span class="status-<?= strtolower(str_replace(' ', '-', $c['status'])) ?>">
-                                <?= $c['status'] ?>
-                            </span>
-                        </h3>
-                        <p><?= htmlspecialchars($c['description']) ?></p>
-                        <div class="complaint-meta">
-                            <div class="meta-item">
-                                <strong>Complainant:</strong>
-                                <?= htmlspecialchars($c['complainant_name']) ?>
+            <h2>System Activity Log</h2>
+            <div class="audit-controls">
+                <form method="GET" action="export_audit_log.php">
+                    <input type="date" name="start_date">
+                    <input type="date" name="end_date">
+                    <button type="submit" class="btn-small">Export CSV</button>
+                </form>
+            </div>
+            
+            <div class="audit-log">
+                <?php if(empty($logs)): ?>
+                    <p>No activity recorded yet.</p>
+                <?php else: ?>
+                    <?php foreach($logs as $log): ?>
+                        <div class="log-entry">
+                            <div class="log-header">
+                                <span class="log-time"><?= date('M d, Y H:i', strtotime($log['created_at'])) ?></span>
+                                <span class="log-type"><?= $log['action_type'] ?></span>
+                                <span class="log-user"><?= $log['username'] ?: 'System' ?></span>
+                                <span class="log-ip"><?= $log['ip_address'] ?></span>
                             </div>
-                            <?php if($c['respondent_name']): ?>
-                                <div class="meta-item">
-                                    <strong>Assigned To:</strong>
-                                    <?= htmlspecialchars($c['respondent_name']) ?> 
-                                    (Level <?= $c['escalation_level'] ?>)
-                                </div>
-                            <?php endif; ?>
-                            <div class="meta-item">
-                                <strong>Type:</strong>
-                                <?= htmlspecialchars($c['type_name']) ?> - <?= htmlspecialchars($c['subtype']) ?>
-                            </div>
-                            <div class="meta-item">
-                                <strong>Submitted:</strong>
-                                <?= date('M d, Y H:i', strtotime($c['submitted_at'])) ?>
-                            </div>
+                            <div class="log-desc"><?= htmlspecialchars($log['description']) ?></div>
                         </div>
-                    </div>
-                <?php endforeach; ?>
+                    <?php endforeach; ?>
+                <?php endif; ?>
             </div>
         </div>
 
+        <!-- Existing User Management Section -->
         <div class="dashboard-card">
             <h2>User Management</h2>
             <table class="user-table">
@@ -191,6 +248,55 @@ $types = $conn->query("SELECT DISTINCT type_name FROM types")->fetch_all(MYSQLI_
                 </tbody>
             </table>
         </div>
+
+        <!-- Existing Complaints Section -->
+        <div class="dashboard-card">
+            <h2>All Complaints</h2>
+            <div class="status-filter">
+                <label>Filter by Status:</label>
+                <select onchange="filterComplaints(this.value)">
+                    <option value="all">All</option>
+                    <option value="Open">Open</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Resolved">Resolved</option>
+                    <option value="Closed">Closed</option>
+                </select>
+            </div>
+            <div class="complaint-list">
+                <?php foreach($complaints as $c): ?>
+                    <div class="complaint-item" data-status="<?= strtolower($c['status']) ?>">
+                        <h3>
+                            <?= htmlspecialchars($c['subject']) ?>
+                            <span class="status-<?= strtolower(str_replace(' ', '-', $c['status'])) ?>">
+                                <?= $c['status'] ?>
+                            </span>
+                        </h3>
+                        <p><?= htmlspecialchars($c['description']) ?></p>
+                        <div class="complaint-meta">
+                            <div class="meta-item">
+                                <strong>Complainant:</strong>
+                                <?= htmlspecialchars($c['complainant_name']) ?>
+                            </div>
+                            <?php if($c['respondent_name']): ?>
+                                <div class="meta-item">
+                                    <strong>Assigned To:</strong>
+                                    <?= htmlspecialchars($c['respondent_name']) ?> 
+                                    (Level <?= $c['escalation_level'] ?>)
+                                </div>
+                            <?php endif; ?>
+                            <div class="meta-item">
+                                <strong>Type:</strong>
+                                <?= htmlspecialchars($c['type_name']) ?> - <?= htmlspecialchars($c['subtype']) ?>
+                            </div>
+                            <div class="meta-item">
+                                <strong>Submitted:</strong>
+                                <?= date('M d, Y H:i', strtotime($c['submitted_at'])) ?>
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -204,6 +310,18 @@ $types = $conn->query("SELECT DISTINCT type_name FROM types")->fetch_all(MYSQLI_
                 row.querySelector('[name="rsp_level"]').disabled = !isRespondent;
             });
         });
+
+        // Complaint filtering function
+        function filterComplaints(status) {
+            const complaints = document.querySelectorAll('.complaint-item');
+            complaints.forEach(complaint => {
+                if (status === 'all' || complaint.dataset.status === status.toLowerCase()) {
+                    complaint.style.display = 'block';
+                } else {
+                    complaint.style.display = 'none';
+                }
+            });
+        }
     </script>
 </body>
 </html>

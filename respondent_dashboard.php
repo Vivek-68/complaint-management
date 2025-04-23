@@ -16,6 +16,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['status'])) {
     $stmt = $conn->prepare("UPDATE complaints SET status = ? WHERE id = ?");
     $stmt->bind_param("si", $new_status, $complaint_id);
     $stmt->execute();
+    if ($stmt->execute()) {
+        $log_desc = "Complaint #$complaint_id status changed to $new_status";
+        log_activity('STATUS_UPDATE', $log_desc, $conn);
+        header("Location: respondent_dashboard.php");
+        exit();
+    }
     
     header("Location: respondent_dashboard.php");
     exit();

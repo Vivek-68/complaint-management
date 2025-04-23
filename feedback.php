@@ -8,10 +8,12 @@ if (isset($_GET['cid']) && isset($_GET['token']) && isset($_GET['response'])) {
     
     // Validate token
     $result = $conn->query("
-        SELECT * FROM complaints 
-        WHERE id = $complaint_id 
-        AND feedback_token = '$token'
-        AND token_expiry > NOW()
+        SELECT c.*, t.type_name 
+        FROM complaints c
+        JOIN types t ON c.type_id = t.id
+        WHERE c.id = $complaint_id 
+        AND c.feedback_token = '$token'
+        AND c.token_expiry > NOW()
     ");
     
     if ($result->num_rows === 1) {
@@ -20,23 +22,30 @@ if (isset($_GET['cid']) && isset($_GET['token']) && isset($_GET['response'])) {
         if ($response === 'no') {
             // Escalate complaint
             $new_level = $complaint['escalation_level'] + 1;
-            $type_id = $complaint['type_id'];
+            $complaint_type = $complaint['type_name'];
             
-            // Find higher-level respondent
-            $respondent = $conn->query("
-                SELECT u.id 
+            // Find higher-level respondent with least workload
+            $respondent_query = $conn->query("
+                SELECT u.id, COUNT(c.id) AS open_complaints 
                 FROM users u
-                JOIN types t ON u.rsp_type = t.type_name
-                WHERE t.id = $type_id
-                AND u.rsp_level = $new_level
-                ORDER BY u.rsp_level ASC
+                LEFT JOIN complaints c 
+                    ON u.id = c.current_respondent_id 
+                    AND c.status IN ('Open', 'In Progress')
+                WHERE u.role = 'respondent' 
+                AND u.rsp_type = '$complaint_type'
+                AND u.rsp_level > {$complaint['escalation_level']}
+                GROUP BY u.id
+                ORDER BY u.rsp_level ASC, open_complaints ASC
                 LIMIT 1
             ");
             
-            $respondent_id = $respondent->num_rows > 0 
-                ? $respondent->fetch_assoc()['id'] 
-                : NULL;
-
+            $respondent_id = null;
+            if ($respondent_query->num_rows > 0) {
+                $respondent = $respondent_query->fetch_assoc();
+                $respondent_id = $respondent['id'];
+            }
+            
+            // Update complaint
             $conn->query("
                 UPDATE complaints 
                 SET status = 'Open',
@@ -57,7 +66,6 @@ if (isset($_GET['cid']) && isset($_GET['token']) && isset($_GET['response'])) {
             ");
         }
     }
-    
     header("Location: login.php");
     exit();
 }
